@@ -441,6 +441,16 @@
   .topic-block:first-of-type{border-top:none;}
   .topic-block h3{font-size:17px; font-family:'Inter',sans-serif; font-weight:700; display:flex; align-items:baseline; gap:9px; color:var(--text-1);}
   .topic-block h3 .t-num{font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--violet-soft); font-weight:700;}
+  .tts-listen-btn{margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:700; padding:6px 12px; border-radius:20px; background:rgba(var(--cyan-rgb),0.12); border:1px solid rgba(var(--cyan-rgb),0.35); color:var(--cyan); cursor:pointer; transition:all .18s; white-space:nowrap;}
+  .tts-listen-btn:hover{background:rgba(var(--cyan-rgb),0.2);}
+  .tts-listen-btn.is-active{background:var(--cyan); color:var(--bg-main,#fff); border-color:var(--cyan);}
+  .tts-active-block{background:rgba(var(--cyan-rgb),0.08); border-radius:8px; box-shadow:0 0 0 1px rgba(var(--cyan-rgb),0.18); transition:background-color .25s;}
+  .tts-word.active{background:rgba(var(--cyan-rgb),0.38); border-radius:3px; box-shadow:0 0 0 2px rgba(var(--cyan-rgb),0.38);}
+  .tts-bar{position:fixed; left:50%; bottom:22px; transform:translateX(-50%); z-index:400; display:flex; align-items:center; gap:14px; background:var(--bg-card); border:1px solid var(--border-hover); border-radius:16px; padding:10px 18px; box-shadow:0 18px 40px -14px rgba(0,0,0,0.35); max-width:calc(100vw - 32px);}
+  .tts-bar-label{font-size:12.5px; font-weight:700; color:var(--text-1); max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .tts-bar-btn{width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--grad-main); color:var(--on-accent); font-size:14px; flex-shrink:0;}
+  .tts-bar-btn.ghost{background:transparent; border:1px solid var(--border-hover); color:var(--text-2);}
+  .tts-rate-select{background:var(--bg-main,transparent); border:1px solid var(--border-hover); color:var(--text-2); font-size:11.5px; font-weight:700; border-radius:8px; padding:5px 7px;}
   .topic-block ul{margin:12px 0 0; padding-left:20px;}
   .topic-block li{font-size:14.5px; line-height:1.75; color:var(--text-2); margin-bottom:8px;}
   .notes-length-toggle{display:flex; gap:6px; background:var(--bg-card); border:1px solid var(--border); padding:4px; border-radius:10px; width:fit-content; margin-bottom:20px;}
@@ -7043,6 +7053,7 @@ async function renderTicker(){
 
 /* ======================= NAV ======================= */
 function showScreen(name){
+  if(name!=='course') stopTts();
   ['auth','dashboard','category','course','locked','admin','admin-edit','profile','legal','learning','content-health','requests','admin-requests','payment-requests','community','admin-users','admin-business','admin-news'].forEach(s=>{
     document.getElementById('screen-'+s).hidden=(s!==name);
   });
@@ -7379,6 +7390,7 @@ async function openCourseHub(catKey, course, startModule){
 }
 
 function switchTab(tab){
+  if(tab!=='notes') stopTts();
   state.activeTab=tab;
   ['notes','pdfs','mcq','comments'].forEach(t=>{
     document.getElementById('panel-'+t).hidden=(t!==tab);
@@ -7455,7 +7467,7 @@ function renderModuleNav(){
       <span class="m-index">${m.name}</span>${m.label}
     </button>`).join('');
 }
-function switchModule(i){ state.currentModule=i; renderModuleNav(); renderReaderContent(); recordStudyActivity(); }
+function switchModule(i){ stopTts(); state.currentModule=i; renderModuleNav(); renderReaderContent(); recordStudyActivity(); }
 
 function renderTopicExtras(topic){
   let extra='';
@@ -7531,15 +7543,164 @@ function renderTopicExtras(topic){
 }
 
 function renderTopicBody(topic){
+  const safeId = topic.n.replace(/\W/g,'');
   if(state.notesLength==='long' && topic.long && topic.long.length){
-    return `<div class="topic-long">${topic.long.map(p=>`<p>${p}</p>`).join('')}</div>`;
+    return `<div class="topic-long" id="ttsbody-${safeId}">${topic.long.map((p,i)=>`<p data-tts-i="${i}">${p}</p>`).join('')}</div>`;
   }
   if(state.notesLength==='long'){
-    return `<ul>${topic.pts.map(p=>`<li>${p}</li>`).join('')}</ul><div class="long-missing-note">📄 Long-form version coming soon for this topic — showing short notes.</div>`;
+    return `<ul id="ttsbody-${safeId}">${topic.pts.map((p,i)=>`<li data-tts-i="${i}">${p}</li>`).join('')}</ul><div class="long-missing-note">📄 Long-form version coming soon for this topic — showing short notes.</div>`;
   }
-  return `<ul>${topic.pts.map(p=>`<li>${p}</li>`).join('')}</ul>`;
+  return `<ul id="ttsbody-${safeId}">${topic.pts.map((p,i)=>`<li data-tts-i="${i}">${p}</li>`).join('')}</ul>`;
 }
-function setNotesLength(len){ state.notesLength=len; saveNotesLength(len); renderReaderContent(); }
+function setNotesLength(len){ stopTts(); state.notesLength=len; saveNotesLength(len); renderReaderContent(); }
+
+/* ======================= READ ALOUD (Text-to-Speech + word highlighting) =======================
+   Uses the browser's built-in Web Speech API (SpeechSynthesis) — free, no API key, fully
+   client-side. Reads one topic at a time, one paragraph/bullet ("block") at a time. Each block
+   gets a visible highlight the whole time it's being read (works in every browser), PLUS
+   word-by-word highlighting via the 'boundary' event where the browser supports it (Chrome/Edge/
+   most Android browsers — Safari support is inconsistent, so word-highlighting degrades
+   gracefully to block-level-only there, still fully functional). */
+let ttsState = { active:false, paused:false, topicN:null, blocks:[], blockIdx:0, rate:1, currentEl:null, originalHTML:null };
+
+function ttsStripHtml(s){ return String(s).replace(/<[^>]+>/g, ''); }
+function ttsSupported(){ return typeof window!=='undefined' && 'speechSynthesis' in window; }
+async function getTtsRate(){ try{ const r=await window.storage.get('ttsRate', false); return r?parseFloat(r.value):1; }catch(e){ return 1; } }
+async function saveTtsRate(rate){ try{ await window.storage.set('ttsRate', String(rate), false); }catch(e){} }
+
+async function toggleListenTopic(topicN){
+  if(!ttsSupported()){ showToast('⚠️ Is browser mein Read Aloud support nahi hai.'); return; }
+  if(ttsState.active && ttsState.topicN===topicN){
+    if(ttsState.paused){ resumeTts(); } else { pauseTts(); }
+    return;
+  }
+  if(ttsState.active){ stopTts(); }
+  await startListenTopic(topicN);
+}
+
+async function startListenTopic(topicN){
+  const safeId = topicN.replace(/\W/g,'');
+  const bodyEl = document.getElementById('ttsbody-'+safeId);
+  if(!bodyEl){ return; }
+  const blockEls = Array.from(bodyEl.children).filter(el=>el.hasAttribute('data-tts-i'));
+  if(!blockEls.length){ showToast('Is topic ke liye padhne layak content nahi mila.'); return; }
+  ttsState.active = true;
+  ttsState.paused = false;
+  ttsState.topicN = topicN;
+  ttsState.blocks = blockEls;
+  ttsState.blockIdx = 0;
+  ttsState.rate = await getTtsRate();
+  updateListenButtons();
+  renderTtsBar();
+  playCurrentTtsBlock();
+}
+
+function playCurrentTtsBlock(){
+  if(!ttsState.active) return;
+  if(ttsState.blockIdx >= ttsState.blocks.length){ stopTts(); return; }
+  const el = ttsState.blocks[ttsState.blockIdx];
+  ttsState.currentEl = el;
+  ttsState.originalHTML = el.innerHTML;
+  const plainText = ttsStripHtml(ttsState.originalHTML).trim();
+  if(!plainText){ ttsState.blockIdx++; playCurrentTtsBlock(); return; }
+
+  // Wrap each word in its own span (keeping original whitespace) so the 'boundary'
+  // event, where supported, can highlight exactly the word currently being spoken.
+  const tokens = plainText.split(/(\s+)/);
+  let charPos = 0, wordIdx = 0, wrappedHtml = '';
+  const starts = [];
+  tokens.forEach(tok=>{
+    if(tok.length===0) return;
+    if(/^\s+$/.test(tok)){ wrappedHtml += tok; charPos += tok.length; return; }
+    starts.push({start:charPos, end:charPos+tok.length, idx:wordIdx});
+    wrappedHtml += `<span class="tts-word" data-w="${wordIdx}">${tok}</span>`;
+    charPos += tok.length; wordIdx++;
+  });
+  el.innerHTML = wrappedHtml;
+  el.classList.add('tts-active-block');
+  el.scrollIntoView({behavior:'smooth', block:'center'});
+
+  const utter = new SpeechSynthesisUtterance(plainText);
+  utter.rate = ttsState.rate;
+  utter.onboundary = (e)=>{
+    if(e.name && e.name!=='word') return;
+    const cp = e.charIndex;
+    const match = starts.find(s=>cp>=s.start && cp<s.end) || starts.slice().reverse().find(s=>cp>=s.start);
+    if(match){
+      const prevActive = el.querySelector('.tts-word.active');
+      if(prevActive) prevActive.classList.remove('active');
+      const span = el.querySelector(`.tts-word[data-w="${match.idx}"]`);
+      if(span) span.classList.add('active');
+    }
+  };
+  utter.onend = ()=>{
+    if(!ttsState.active || ttsState.currentEl!==el) return;
+    el.innerHTML = ttsState.originalHTML;
+    el.classList.remove('tts-active-block');
+    ttsState.blockIdx++;
+    playCurrentTtsBlock();
+  };
+  utter.onerror = ()=>{ stopTts(); };
+  window.speechSynthesis.speak(utter);
+}
+
+function pauseTts(){
+  if(!ttsState.active) return;
+  window.speechSynthesis.pause();
+  ttsState.paused = true;
+  updateListenButtons(); renderTtsBar();
+}
+function resumeTts(){
+  if(!ttsState.active) return;
+  window.speechSynthesis.resume();
+  ttsState.paused = false;
+  updateListenButtons(); renderTtsBar();
+}
+function stopTts(){
+  if(!ttsState.active){ return; }
+  const wasEl = ttsState.currentEl, wasHtml = ttsState.originalHTML;
+  if(ttsSupported()) window.speechSynthesis.cancel();
+  if(wasEl && wasHtml!==null){ wasEl.innerHTML = wasHtml; wasEl.classList.remove('tts-active-block'); }
+  ttsState = { active:false, paused:false, topicN:null, blocks:[], blockIdx:0, rate:ttsState.rate, currentEl:null, originalHTML:null };
+  updateListenButtons(); renderTtsBar();
+}
+function setTtsRate(rate){
+  ttsState.rate = parseFloat(rate);
+  saveTtsRate(ttsState.rate);
+  if(ttsState.active && !ttsState.paused){
+    window.speechSynthesis.cancel(); // Web Speech API can't change rate mid-utterance — restart current block at the new rate
+    playCurrentTtsBlock();
+  }
+  renderTtsBar();
+}
+function updateListenButtons(){
+  document.querySelectorAll('.tts-listen-btn').forEach(btn=>{ btn.classList.remove('is-active'); btn.textContent='🔊 Listen'; });
+  if(ttsState.active){
+    const btn = document.getElementById('ttsbtn-'+ttsState.topicN.replace(/\W/g,''));
+    if(btn){ btn.classList.add('is-active'); btn.textContent = ttsState.paused ? '⏸ Paused' : '🔊 Listening…'; }
+  }
+}
+function findTopicByN(n){
+  if(!state.currentNotes) return null;
+  for(const mod of state.currentNotes){
+    const t=(mod.topics||[]).find(t=>t.n===n);
+    if(t) return t;
+  }
+  return null;
+}
+function renderTtsBar(){
+  let bar = document.getElementById('tts-bar');
+  if(!ttsState.active){ if(bar) bar.remove(); return; }
+  if(!bar){ bar=document.createElement('div'); bar.id='tts-bar'; bar.className='tts-bar'; document.body.appendChild(bar); }
+  const topic = findTopicByN(ttsState.topicN);
+  bar.innerHTML = `
+    <div class="tts-bar-label">🔊 ${topic ? topic.t : ttsState.topicN}</div>
+    <button class="tts-bar-btn ghost" onclick="stopTts()" title="Stop">⏹</button>
+    <button class="tts-bar-btn" onclick="${ttsState.paused?'resumeTts()':'pauseTts()'}" title="${ttsState.paused?'Resume':'Pause'}">${ttsState.paused?'▶':'⏸'}</button>
+    <select class="tts-rate-select" onchange="setTtsRate(this.value)">
+      ${[0.75,1,1.25,1.5,2].map(r=>`<option value="${r}" ${ttsState.rate===r?'selected':''}>${r}×</option>`).join('')}
+    </select>`;
+}
 
 function renderReaderContent(){
   const page=document.getElementById('reader-page');
@@ -7570,7 +7731,7 @@ function renderReaderContent(){
     </div>`;
   const topicsHtml=mod.topics.map(topic=>`
     <div class="topic-block">
-      <h3><span class="t-num">${topic.n}</span>${topic.t}</h3>
+      <h3><span class="t-num">${topic.n}</span>${topic.t}<button class="tts-listen-btn" id="ttsbtn-${topic.n.replace(/\W/g,'')}" onclick="toggleListenTopic('${topic.n}')">🔊 Listen</button></h3>
       ${renderTopicBody(topic)}
       ${renderTopicExtras(topic)}
     </div>`).join('');
