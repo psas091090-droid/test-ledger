@@ -210,6 +210,12 @@
   @keyframes ticker{0%{transform:translateX(0);} 100%{transform:translateX(-50%);}}
   @keyframes pulseDot{0%,100%{box-shadow:0 0 0 0 rgba(var(--lime-rgb),0.5);} 50%{box-shadow:0 0 0 6px rgba(var(--lime-rgb),0);}}
   .fade-up{animation:fadeUp .55s cubic-bezier(.2,.7,.3,1) both;}
+  .reveal{opacity:0; transform:translateY(22px); transition:opacity .65s cubic-bezier(.2,.7,.3,1), transform .65s cubic-bezier(.2,.7,.3,1);}
+  .reveal.visible{opacity:1; transform:translateY(0);}
+  @media (prefers-reduced-motion: reduce){
+    .reveal{opacity:1; transform:none; transition:none;}
+    .fade-up{animation:none;}
+  }
 
   #topbar{position:sticky; top:0; z-index:50; background:var(--auth-panel-bg); backdrop-filter:blur(14px); border-bottom:1px solid var(--border);}
   .topbar-inner{max-width:1220px; margin:0 auto; padding:14px 26px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;}
@@ -759,6 +765,15 @@
   .swatch-cloud{background:linear-gradient(135deg,#F7F8FA,#4F46E5);}
   .swatch-rosegold{background:linear-gradient(135deg,#FFF5F5,#E11D74);}
   .swatch-amberdawn{background:linear-gradient(135deg,#FFFBEB,#D97706);}
+  .most-loved-card{display:flex; align-items:center; gap:14px; background:var(--bg-card); border:1px solid var(--border); border-radius:14px; padding:16px 20px; max-width:480px; margin:0 auto;}
+  .theme-swatch-row{display:flex; justify-content:center; flex-wrap:wrap; gap:12px; margin-top:20px;}
+  .swatch-btn{padding:4px; border-radius:50%; border:2px solid transparent; transition:all .18s;}
+  .swatch-btn:hover{border-color:var(--border-hover); transform:scale(1.12);}
+  .swatch-btn .swatch{width:30px; height:30px;}
+  .night-nudge{position:fixed; bottom:22px; left:22px; z-index:399; display:flex; align-items:center; gap:12px; background:var(--bg-card); border:1px solid var(--border-hover); border-radius:14px; padding:12px 16px; box-shadow:0 18px 40px -14px rgba(0,0,0,0.4); max-width:340px; animation:fadeUp .5s cubic-bezier(.2,.7,.3,1) both;}
+  .night-nudge-text{font-size:12.5px; color:var(--text-2); line-height:1.5;}
+  .night-nudge-actions{display:flex; gap:8px; margin-top:8px;}
+  .night-nudge-close{position:absolute; top:6px; right:8px; font-size:15px; color:var(--text-3); cursor:pointer; line-height:1;}
 
   #site-footer{border-top:1px solid var(--border); margin-top:20px; padding:22px 26px; position:relative; z-index:1;}
   .footer-inner{max-width:1220px; margin:0 auto; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; font-size:12px; color:var(--text-3);}
@@ -808,7 +823,7 @@
   }
 </style>
 </head>
-<body class="theme-violet">
+<body class="theme-parchment">
 
 <div class="bg-blobs"><div class="blob blob1"></div><div class="blob blob2"></div><div class="blob blob3"></div></div>
 
@@ -957,8 +972,8 @@
     </div>
 
     <div class="landing-section" style="padding-top:38px;padding-bottom:28px;">
-      <p style="text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--text-3);margin-bottom:4px;">Bankers preparing with Ledger work at</p>
-      <div class="bank-strip">
+      <p class="reveal" style="text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--text-3);margin-bottom:4px;">Bankers preparing with Ledger work at</p>
+      <div class="bank-strip reveal" style="transition-delay:80ms;">
         <span class="bank-chip">State Bank of India</span>
         <span class="bank-chip">Punjab National Bank</span>
         <span class="bank-chip">Bank of Baroda</span>
@@ -973,29 +988,40 @@
     </div>
 
     <div class="landing-section">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">How it works</div>
         <h2>Three steps to exam-ready</h2>
         <p>No credit card needed to look around — start with the free sample.</p>
       </div>
       <div class="steps-grid">
-        <div class="step-card"><div class="step-num">1</div><h4>Browse the library</h4><p>34 courses across 5 categories — JAIIB, CAIIB, Certificate, Diploma & more.</p></div>
-        <div class="step-card"><div class="step-num">2</div><h4>Try the free sample</h4><p>Read a full course — notes, PDFs and MCQs — before you pay for anything.</p></div>
-        <div class="step-card"><div class="step-num">3</div><h4>Unlock &amp; study</h4><p>Buy the course you need, and it opens instantly — no waiting, no shipping.</p></div>
+        <div class="step-card reveal" style="transition-delay:0ms;"><div class="step-num">1</div><h4>Browse the library</h4><p>34 courses across 5 categories — JAIIB, CAIIB, Certificate, Diploma & more.</p></div>
+        <div class="step-card reveal" style="transition-delay:100ms;"><div class="step-num">2</div><h4>Try the free sample</h4><p>Read a full course — notes, PDFs and MCQs — before you pay for anything.</p></div>
+        <div class="step-card reveal" style="transition-delay:200ms;"><div class="step-num">3</div><h4>Unlock &amp; study</h4><p>Buy the course you need, and it opens instantly — no waiting, no shipping.</p></div>
       </div>
     </div>
 
     <div class="landing-section">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">What's included</div>
         <h2>Everything in one course</h2>
       </div>
       <div class="feature-grid-landing">
-        <div class="feature-card-landing"><div class="fi">📘</div><h4>Structured Notes</h4><p>Module &amp; topic-wise, written to actually explain the syllabus — not just list it.</p></div>
-        <div class="feature-card-landing"><div class="fi">📄</div><h4>Official + Updated PDFs</h4><p>The credited original IIBF syllabus, plus our notes PDF with version history.</p></div>
-        <div class="feature-card-landing"><div class="fi">🧠</div><h4>Practice MCQs</h4><p>Easy, Moderate &amp; Tough tiers, every question with a full explanation.</p></div>
-        <div class="feature-card-landing"><div class="fi">📊</div><h4>Progress Tracking</h4><p>Pick up exactly where you left off, on any device.</p></div>
+        <div class="feature-card-landing reveal" style="transition-delay:0ms;"><div class="fi">📘</div><h4>Structured Notes</h4><p>Module &amp; topic-wise, written to actually explain the syllabus — not just list it.</p></div>
+        <div class="feature-card-landing reveal" style="transition-delay:80ms;"><div class="fi">📄</div><h4>Official + Updated PDFs</h4><p>The credited original IIBF syllabus, plus our notes PDF with version history.</p></div>
+        <div class="feature-card-landing reveal" style="transition-delay:160ms;"><div class="fi">🧠</div><h4>Practice MCQs</h4><p>Easy, Moderate &amp; Tough tiers, every question with a full explanation.</p></div>
+        <div class="feature-card-landing reveal" style="transition-delay:240ms;"><div class="fi">📊</div><h4>Progress Tracking</h4><p>Pick up exactly where you left off, on any device.</p></div>
       </div>
+    </div>
+
+    <div class="landing-section">
+      <div class="section-head reveal">
+        <div class="eyebrow">Make it yours</div>
+        <h2>10 themes — pick your vibe</h2>
+        <p>Dark, light, or somewhere in between. Switch anytime from the palette icon in the corner.</p>
+      </div>
+      <div id="most-loved-theme-panel" class="reveal" style="transition-delay:80ms;"></div>
+      <div id="theme-swatch-row-landing" class="theme-swatch-row reveal" style="transition-delay:140ms;"></div>
+      <p style="text-align:center;font-size:12px;color:var(--text-3);margin-top:10px;">🌙 Studying late? Dark themes are easier on the eyes — especially with Listen mode on.</p>
     </div>
 
     <div class="landing-section">
@@ -1018,11 +1044,11 @@
     </div>
 
     <div class="landing-section">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">Why not just wing it?</div>
         <h2>Ledger vs. loose PDFs vs. coaching classes</h2>
       </div>
-      <div class="compare-table-wrap">
+      <div class="compare-table-wrap reveal">
         <table class="compare-table">
           <thead><tr><th>What you get</th><th class="col-ledger">Ledger</th><th>Separate PDFs</th><th>Coaching classes</th></tr></thead>
           <tbody>
@@ -1040,20 +1066,20 @@
     </div>
 
     <div class="landing-section">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">Testimonials</div>
         <h2>What working bankers are saying</h2>
       </div>
       <div class="testi-grid">
-        <div class="testi-card">
+        <div class="testi-card reveal" style="transition-delay:0ms;">
           <div class="testi-quote">"Studying for JAIIB while doing branch duty is tough. The module-wise notes meant I could finish a full topic on my commute — I didn't need to keep going back to the bulky syllabus PDF."</div>
           <div class="testi-person"><div class="testi-avatar">RK</div><div><div class="testi-name">Rohit Kumar</div><div class="testi-role">Probationary Officer, Punjab National Bank</div></div></div>
         </div>
-        <div class="testi-card">
+        <div class="testi-card reveal" style="transition-delay:100ms;">
           <div class="testi-quote">"The Tough-tier MCQs actually match the difficulty of the real CAIIB paper — especially the numerical ones. That's rare. Most prep material only tests the easy stuff."</div>
           <div class="testi-person"><div class="testi-avatar">SP</div><div><div class="testi-name">Sunita Patil</div><div class="testi-role">Senior Manager, Bank of Baroda</div></div></div>
         </div>
-        <div class="testi-card">
+        <div class="testi-card reveal" style="transition-delay:200ms;">
           <div class="testi-quote">"I liked being able to try the free Microfinance sample before paying for anything. Once I saw the note quality, buying the rest of my Certificate courses was an easy call."</div>
           <div class="testi-person"><div class="testi-avatar">AV</div><div><div class="testi-name">Arjun Verma</div><div class="testi-role">Officer, HDFC Bank</div></div></div>
         </div>
@@ -1061,11 +1087,11 @@
     </div>
 
     <div class="landing-section">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">See the quality</div>
         <h2>A peek at the actual notes</h2>
       </div>
-      <div class="notes-preview-card">
+      <div class="notes-preview-card reveal">
         <div id="notes-preview-content"></div>
         <div class="preview-fade">
           <button class="btn btn-grad" onclick="handleDemoLogin()">Unlock full notes free →</button>
@@ -1074,35 +1100,35 @@
     </div>
 
     <div class="landing-section">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">Study tips</div>
         <h2>Free tips to help you actually pass</h2>
         <p>Real prep advice from how bankers use Ledger — no signup needed to read these.</p>
       </div>
-      <div class="faq-list" id="study-tips-list"></div>
+      <div class="faq-list reveal" id="study-tips-list"></div>
     </div>
 
     <div class="landing-section">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">Plan ahead</div>
         <h2>Upcoming IIBF exam windows</h2>
         <p>Illustrative timeline for planning — always confirm exact dates on iibf.org.in before registering.</p>
       </div>
       <div class="exam-window-grid">
-        <div class="exam-window-card"><h4>📘 JAIIB</h4><div class="ew-date">Next window · check iibf.org.in</div><span class="ew-status">Notes ready</span></div>
-        <div class="exam-window-card"><h4>📗 CAIIB</h4><div class="ew-date">Next window · check iibf.org.in</div><span class="ew-status">Notes ready</span></div>
-        <div class="exam-window-card"><h4>📙 Diploma in Banking &amp; Finance</h4><div class="ew-date">Next window · check iibf.org.in</div><span class="ew-status">Notes ready</span></div>
-        <div class="exam-window-card"><h4>📕 Certificate &amp; Diploma courses</h4><div class="ew-date">Rolling admissions</div><span class="ew-status">Notes ready</span></div>
+        <div class="exam-window-card reveal" style="transition-delay:0ms;"><h4>📘 JAIIB</h4><div class="ew-date">Next window · check iibf.org.in</div><span class="ew-status">Notes ready</span></div>
+        <div class="exam-window-card reveal" style="transition-delay:80ms;"><h4>📗 CAIIB</h4><div class="ew-date">Next window · check iibf.org.in</div><span class="ew-status">Notes ready</span></div>
+        <div class="exam-window-card reveal" style="transition-delay:160ms;"><h4>📙 Diploma in Banking &amp; Finance</h4><div class="ew-date">Next window · check iibf.org.in</div><span class="ew-status">Notes ready</span></div>
+        <div class="exam-window-card reveal" style="transition-delay:240ms;"><h4>📕 Certificate &amp; Diploma courses</h4><div class="ew-date">Rolling admissions</div><span class="ew-status">Notes ready</span></div>
       </div>
     </div>
 
     <div class="landing-section">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">Stay connected</div>
         <h2>Join the community</h2>
         <p>Daily updates, doubt-solving, and exam alerts — wherever you already hang out.</p>
       </div>
-      <div class="community-badges">
+      <div class="community-badges reveal">
         <button class="community-badge cb-whatsapp" onclick="openCommunityChannel('WhatsApp')"><span class="cb-icon">🟢</span> WhatsApp Group</button>
         <button class="community-badge cb-telegram" onclick="openCommunityChannel('Telegram')"><span class="cb-icon">✈️</span> Telegram Channel</button>
         <button class="community-badge cb-youtube" onclick="openCommunityChannel('YouTube')"><span class="cb-icon">▶️</span> YouTube Channel</button>
@@ -1110,7 +1136,7 @@
     </div>
 
     <div class="landing-section" style="border-bottom:1px solid var(--border);">
-      <div class="section-head">
+      <div class="section-head reveal">
         <div class="eyebrow">FAQ</div>
         <h2>Common questions</h2>
       </div>
@@ -4479,7 +4505,7 @@ const FAQ_ITEMS = [
 ];
 
 /* ======================= STATE ======================= */
-let state = { user:null, screen:'auth', currentCategory:null, activeTab:'notes', currentModule:0, currentCourseSlug:null, currentNotes:null, currentNotesUpdated:null, currentMCQ:null, currentMCQModule:null, currentCourseMeta:null, purchases:[], theme:'violet', searchQuery:'', filterStatus:'all', filterCategory:'all', currentLegal:'terms', sessionToken:null, notesLength:'short' };
+let state = { user:null, screen:'auth', currentCategory:null, activeTab:'notes', currentModule:0, currentCourseSlug:null, currentNotes:null, currentNotesUpdated:null, currentMCQ:null, currentMCQModule:null, currentCourseMeta:null, purchases:[], theme:'parchment', searchQuery:'', filterStatus:'all', filterCategory:'all', currentLegal:'terms', sessionToken:null, notesLength:'short' };
 let quiz = { difficulty:null, questions:[], index:0, correct:0, answered:false };
 let adminEdit = { catKey:null, idx:null, course:null, modules:[] };
 
@@ -4860,7 +4886,7 @@ async function markModuleViewed(){
 }
 
 async function saveTheme(key){ try{ await window.storage.set('theme', key, false); }catch(e){} }
-async function loadTheme(){ try{ const r=await window.storage.get('theme', false); return r?r.value:'violet'; }catch(e){ return 'violet'; } }
+async function loadTheme(){ try{ const r=await window.storage.get('theme', false); return r?r.value:'parchment'; }catch(e){ return 'parchment'; } }
 async function saveNotesLength(len){ try{ await window.storage.set('notesLength', len, false); }catch(e){} }
 async function loadNotesLength(){ try{ const r=await window.storage.get('notesLength', false); return r?r.value:'short'; }catch(e){ return 'short'; } }
 
@@ -5388,7 +5414,87 @@ function renderThemePanel(){
       </button>`).join('')}`;
   panel.innerHTML = renderGroup('🌙 Dark themes', darkThemes) + renderGroup('☀️ Light themes', lightThemes);
 }
-async function selectTheme(key){ applyTheme(key); await saveTheme(key); renderThemePanel(); }
+async function selectTheme(key){ applyTheme(key); await saveTheme(key); renderThemePanel(); recordThemeChoice(key); }
+
+/* Real (never fake) aggregate theme-preference stats, shared across all users — used only for
+   the "Most loved theme" homepage callout below. Only counts ACTIVE choices (someone opening the
+   theme panel and picking one), not passive default page-loads, so it reflects genuine preference
+   among people who explored the options. */
+async function recordThemeChoice(key){
+  try{
+    const r = await window.storage.get('themeChoiceStats', true);
+    const stats = r ? JSON.parse(r.value) : {};
+    stats[key] = (stats[key]||0) + 1;
+    await window.storage.set('themeChoiceStats', JSON.stringify(stats), true);
+    renderMostLovedTheme();
+  }catch(e){ /* non-fatal — the callout just won't update this instant */ }
+}
+async function renderMostLovedTheme(){
+  const wrap = document.getElementById('most-loved-theme-panel');
+  if(!wrap) return;
+  let stats = {};
+  try{ const r = await window.storage.get('themeChoiceStats', true); stats = r ? JSON.parse(r.value) : {}; }catch(e){}
+  const entries = Object.entries(stats).filter(([k,v])=>v>0);
+  if(!entries.length){
+    wrap.innerHTML = `<p style="text-align:center;color:var(--text-3);font-size:13.5px;">No favourites picked yet — be the first to try a theme below! 👇</p>`;
+    return;
+  }
+  const total = entries.reduce((a,[,v])=>a+v, 0);
+  entries.sort((a,b)=>b[1]-a[1]);
+  const [topKey, topCount] = entries[0];
+  const topTheme = THEMES.find(t=>t.key===topKey);
+  const pct = Math.round((topCount/total)*100);
+  wrap.innerHTML = `
+    <div class="most-loved-card">
+      <span class="swatch swatch-${topKey}" style="width:32px;height:32px;"></span>
+      <div>
+        <div style="font-size:12px;color:var(--text-3);">❤️ Most loved by users right now</div>
+        <div style="font-size:17px;font-weight:700;margin-top:2px;">${topTheme?topTheme.name:topKey} <span style="font-weight:400;color:var(--text-3);font-size:13px;">— picked by ${pct}% of theme-switchers</span></div>
+      </div>
+    </div>`;
+}
+function renderThemeSwatchRow(){
+  const wrap = document.getElementById('theme-swatch-row-landing');
+  if(!wrap) return;
+  wrap.innerHTML = THEMES.map(t=>`<button class="swatch-btn" title="${t.name} (${t.tag})" onclick="selectTheme('${t.key}'); toggleThemePanel();"><span class="swatch swatch-${t.key}"></span></button>`).join('');
+}
+/* Gentle, non-nagging nudge: if it's night-time and the person is on a Light theme, suggest
+   switching to Dark (easier on the eyes for reading, and pairs well with Listen mode). Shows at
+   most once per calendar day — dismissing it (either button) won't ask again until tomorrow. */
+async function checkNightThemeNudge(){
+  const hour = new Date().getHours();
+  const isNight = hour>=20 || hour<6;
+  if(!isNight) return;
+  const currentTheme = THEMES.find(t=>t.key===state.theme);
+  if(!currentTheme || currentTheme.tag!=='Light') return; // already on a dark theme — nothing to suggest
+  try{
+    const r = await window.storage.get('nightNudgeDismissedDate', false);
+    const today = new Date().toISOString().slice(0,10);
+    if(r && r.value===today) return;
+  }catch(e){}
+  renderNightNudge();
+}
+function renderNightNudge(){
+  if(document.getElementById('night-nudge')) return;
+  const bar = document.createElement('div');
+  bar.id = 'night-nudge';
+  bar.className = 'night-nudge';
+  bar.innerHTML = `
+    <span class="night-nudge-close" onclick="dismissNightNudge()">✕</span>
+    <div>
+      <div class="night-nudge-text">🌙 Studying at night? A dark theme is easier on the eyes for reading — and pairs well with Listen mode too.</div>
+      <div class="night-nudge-actions">
+        <button class="btn btn-sm btn-grad" onclick="selectTheme('violet'); dismissNightNudge();">Switch to Dark</button>
+        <button class="btn btn-sm btn-outline" onclick="dismissNightNudge()">Not now</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bar);
+}
+async function dismissNightNudge(){
+  const bar = document.getElementById('night-nudge');
+  if(bar) bar.remove();
+  try{ await window.storage.set('nightNudgeDismissedDate', new Date().toISOString().slice(0,10), false); }catch(e){}
+}
 
 /* ======================= AUTH ======================= */
 function switchAuthTab(which){
@@ -5555,6 +5661,22 @@ function animateCount(el,target){
   function step(now){ const p=Math.min((now-start)/dur,1); cur=Math.floor(p*target); el.textContent=cur; if(p<1) requestAnimationFrame(step); else el.textContent=target; }
   requestAnimationFrame(step);
 }
+/* Scroll-triggered entrance animation for below-the-fold sections. Reuses the same easing as the
+   existing .fade-up (render-time) animation, but only plays once an element actually scrolls into
+   view — call this again after any function renders new .reveal elements into the DOM. */
+function initScrollReveal(){
+  const els = document.querySelectorAll('.reveal:not(.visible)');
+  if(!els.length) return;
+  if(!('IntersectionObserver' in window)){ els.forEach(el=>el.classList.add('visible')); return; }
+  if(!window.__revealObserver){
+    window.__revealObserver = new IntersectionObserver((entries)=>{
+      entries.forEach(entry=>{
+        if(entry.isIntersecting){ entry.target.classList.add('visible'); window.__revealObserver.unobserve(entry.target); }
+      });
+    }, {threshold:0.12, rootMargin:'0px 0px -60px 0px'});
+  }
+  els.forEach(el=>window.__revealObserver.observe(el));
+}
 
 function getAllCoursesFlat(){
   let out=[];
@@ -5566,10 +5688,10 @@ function renderDashboard(){
   const totalCourses=CATEGORIES.reduce((a,c)=>a+c.courses.length,0);
   const strip=document.getElementById('stat-strip');
   strip.innerHTML=`
-    <div class="stat-pill"><b id="sc1">0</b><span>Total Courses</span></div>
-    <div class="stat-pill"><b id="sc2">0</b><span>Categories</span></div>
-    <div class="stat-pill"><b id="sc3">0</b><span>Purchased</span></div>
-    <div class="stat-pill"><b id="dash-streak-num">🔥 0</b><span>Day Streak</span></div>`;
+    <div class="stat-pill fade-up" style="animation-delay:0ms;"><b id="sc1">0</b><span>Total Courses</span></div>
+    <div class="stat-pill fade-up" style="animation-delay:60ms;"><b id="sc2">0</b><span>Categories</span></div>
+    <div class="stat-pill fade-up" style="animation-delay:120ms;"><b id="sc3">0</b><span>Purchased</span></div>
+    <div class="stat-pill fade-up" style="animation-delay:180ms;"><b id="dash-streak-num">🔥 0</b><span>Day Streak</span></div>`;
   animateCount(document.getElementById('sc1'), totalCourses);
   animateCount(document.getElementById('sc2'), CATEGORIES.length);
   animateCount(document.getElementById('sc3'), state.purchases.length);
@@ -5646,7 +5768,7 @@ async function renderRecommendedForYou(){
   const pct = totalModules ? Math.round((viewed/totalModules)*100) : 0;
   const idx=cat.courses.indexOf(course);
   wrap.innerHTML=`
-    <div class="admin-panel" style="margin-bottom:4px; border-color:rgba(var(--violet-rgb),0.35); background:rgba(var(--violet-rgb),0.06);">
+    <div class="admin-panel fade-up" style="margin-bottom:4px; border-color:rgba(var(--violet-rgb),0.35); background:rgba(var(--violet-rgb),0.06);">
       <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:16px;">
         <div style="flex:1;min-width:220px;">
           <div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--violet-soft);font-weight:700;">🎯 Recommended for you · ${targetExam}</div>
@@ -5668,7 +5790,7 @@ async function renderLatestUpdates(){
   const active=list.filter(a=>a.active).sort((a,b)=>new Date(b.ts)-new Date(a.ts)).slice(0,3);
   if(!active.length){ wrap.innerHTML=''; return; }
   wrap.innerHTML=`
-    <div class="admin-panel">
+    <div class="admin-panel fade-up">
       <h3 style="font-size:14px;">📰 Latest Updates</h3>
       <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
         ${active.map(a=>`<div style="font-size:13px;color:var(--text-2);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;"><span>📌 ${a.text}</span><span style="color:var(--text-3);font-size:11.5px;">${timeAgo(a.ts)}</span></div>`).join('')}
@@ -7566,11 +7688,15 @@ document.addEventListener('visibilitychange', ()=>{
   renderNotesPreview();
   renderStudyTips();
   renderFaq();
+  renderThemeSwatchRow();
+  renderMostLovedTheme();
   startLiveCounter();
+  initScrollReveal();
   setupPWA();
   const savedTheme=await loadTheme();
   applyTheme(savedTheme);
   renderThemePanel();
+  checkNightThemeNudge();
   state.notesLength = await loadNotesLength();
   let restored=false;
   if(supabaseClient){
