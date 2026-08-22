@@ -789,6 +789,10 @@
     </div>
     <div class="topbar-right">
       <div class="user-chip" onclick="goProfile()"><span class="dot"></span><span id="user-chip-name">—</span><span class="role-badge" id="role-badge" hidden>Admin</span></div>
+      <div style="position:relative;">
+        <button class="btn btn-outline" onclick="toggleNotificationsPanel()">🔔 <span id="notif-badge" style="display:none;background:#e0483a;color:#fff;border-radius:10px;padding:1px 6px;font-size:11px;font-weight:700;margin-left:4px;"></span></button>
+        <div id="notif-panel" hidden style="position:absolute;right:0;top:calc(100% + 8px);width:320px;max-height:400px;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:10px;z-index:50;"></div>
+      </div>
       <button class="btn btn-outline" onclick="goMyLearning()">📚 My Learning</button>
       <button class="btn btn-outline" onclick="goCommunity()">👥 Community</button>
       <button class="btn btn-outline" onclick="goRequests()">💡 Requests</button>
@@ -1373,13 +1377,11 @@
     </div>
     <div class="stat-strip" id="admin-users-stat-strip"></div>
     <div class="admin-panel" style="max-width:560px; margin-top:22px;">
-      <h3>➕ Create a new admin account</h3>
-      <p style="font-size:11.5px;color:var(--text-3);margin-top:6px;">Gives this person full admin powers — course content, users, business data, everything.</p>
-      <div class="field" style="margin-top:14px;"><label>Full name</label><input id="nu-name" placeholder="Their name"></div>
-      <div class="field"><label>Email</label><input id="nu-email" type="email" placeholder="them@example.com"></div>
-      <div class="field"><label>Temporary password</label><input id="nu-password" type="password" placeholder="Minimum 6 characters"></div>
-      <div class="auth-error" id="nu-error"></div>
-      <button class="btn btn-sm btn-grad" onclick="createAdminAccount()">Create admin account</button>
+      <h3>⬆️ Promote a Student to Admin</h3>
+      <p style="font-size:11.5px;color:var(--text-3);margin-top:6px;">Gives an already-registered student full admin powers — course content, users, business data, everything. They must have signed up themselves first; this doesn't create a new account.</p>
+      <div class="field" style="margin-top:14px;"><label>Their email (must already be registered)</label><input id="promote-email" type="email" placeholder="them@example.com"></div>
+      <div class="auth-error" id="promote-error"></div>
+      <button class="btn btn-sm btn-grad" onclick="promoteExistingToAdmin()">Make admin</button>
     </div>
     <div class="admin-panel" style="max-width:560px; margin-top:20px;">
       <h3>🎁 Grant Course Access</h3>
@@ -6294,6 +6296,61 @@ async function getSalesLedger(){ try{ const r=await window.storage.get('salesLed
 async function getPaymentConfig(){ try{ const r=await window.storage.get('paymentConfig', true); return r?JSON.parse(r.value):null; }catch(e){ return null; } }
 async function savePaymentConfig(cfg){ try{ await window.storage.set('paymentConfig', JSON.stringify(cfg), true); }catch(e){} }
 
+/* ======================= IN-APP NOTIFICATIONS (payment approve/reject) =======================
+   No new table needed — reuses payment_requests (already has status/decided_at) plus one
+   personal kv_store key that just remembers which decision ids this student has already
+   opened the bell for, so the badge count only reflects genuinely NEW decisions. */
+async function getSeenPaymentDecisionIds(){
+  try{ const r=await window.storage.get('seenPaymentDecisions', false); return r?JSON.parse(r.value):[]; }catch(e){ return []; }
+}
+async function saveSeenPaymentDecisionIds(ids){
+  try{ await window.storage.set('seenPaymentDecisions', JSON.stringify(ids), false); }catch(e){}
+}
+async function getMyDecidedPaymentRequests(){
+  if(!supabaseClient || !authUid) return [];
+  try{
+    const { data, error } = await supabaseClient.from('payment_requests')
+      .select('*').eq('user_id', authUid).neq('status','pending')
+      .order('decided_at', { ascending:false }).limit(15);
+    return error ? [] : (data || []);
+  }catch(e){ return []; }
+}
+async function refreshNotificationBadge(){
+  if(!supabaseClient || !authUid){ const b=document.getElementById('notif-badge'); if(b) b.style.display='none'; return; }
+  const [decided, seenIds] = await Promise.all([getMyDecidedPaymentRequests(), getSeenPaymentDecisionIds()]);
+  const unseenCount = decided.filter(r=>!seenIds.includes(r.id)).length;
+  const badge=document.getElementById('notif-badge');
+  if(!badge) return;
+  if(unseenCount>0){ badge.textContent=unseenCount; badge.style.display='inline-block'; }
+  else{ badge.style.display='none'; }
+}
+async function toggleNotificationsPanel(){
+  const panel=document.getElementById('notif-panel');
+  if(!panel.hidden){ panel.hidden=true; return; }
+  const decided = await getMyDecidedPaymentRequests();
+  panel.innerHTML = decided.length ? decided.map(r=>{
+    const isApproved = r.status==='approved';
+    return `
+    <div style="padding:10px;border-bottom:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;gap:8px;">
+        <b style="font-size:13px;">${r.course_title}</b>
+        <span style="font-size:12px;font-weight:700;color:${isApproved?'#2ea043':'#e0483a'};">${isApproved?'✅ Approved':'❌ Rejected'}</span>
+      </div>
+      <div style="font-size:11.5px;color:var(--text-3);margin-top:3px;">${timeAgo(r.decided_at||r.created_at)}</div>
+      ${!isApproved && r.admin_note ? `<div style="font-size:12px;color:var(--text-2);margin-top:5px;">${r.admin_note}</div>` : ''}
+    </div>`;
+  }).join('') : `<p style="font-size:12.5px;color:var(--text-3);padding:8px;">No notifications yet.</p>`;
+  panel.hidden=false;
+  // Opening the bell marks everything currently shown as seen — badge clears until a NEW decision arrives.
+  await saveSeenPaymentDecisionIds(decided.map(r=>r.id));
+  refreshNotificationBadge();
+}
+document.addEventListener('click', (e)=>{
+  const panel=document.getElementById('notif-panel');
+  if(!panel || panel.hidden) return;
+  if(!panel.contains(e.target) && !e.target.closest('button[onclick="toggleNotificationsPanel()"]')){ panel.hidden=true; }
+});
+
 /* Builds a standard UPI deep link — scanning/tapping it opens the user's UPI app with the
    payee, exact amount, and a note pre-filled. One link-builder serves every course at
    whatever price it's currently set to; no need to pre-generate a QR image per course. */
@@ -6855,6 +6912,7 @@ async function enterApp(user){
   document.getElementById('topbar').hidden=false;
   document.getElementById('ticker-strip').hidden=false;
   renderTicker();
+  refreshNotificationBadge();
   startSessionWatch();
   if(user.role==='admin'){ goAdmin(); } else { goDashboard(); }
 }
@@ -7866,21 +7924,28 @@ async function exportCourseToPDF(catKey, idx){
   window.print();
 }
 
+async function getTotalStudentCount(){
+  if(!supabaseClient) return null;
+  try{
+    const { count, error } = await supabaseClient.from('profiles').select('id', { count:'exact', head:true });
+    return error ? null : count;
+  }catch(e){ return null; }
+}
 async function renderAdminOverview(){
   const wrap=document.getElementById('admin-overview');
   const totalCourses=CATEGORIES.reduce((a,c)=>a+c.courses.length,0);
   const allSlugs=getAllCoursesFlat().map(x=>x.course.slug);
   const notesResults=await Promise.all(allSlugs.map(s=>getCourseNotes(s)));
   const publishedCount=notesResults.filter(n=>n && n.length).length;
-  const mockStudents=1240, mockRevenue=286450;
+  const [studentCount, ledger] = await Promise.all([getTotalStudentCount(), getSalesLedger()]);
+  const totalRevenue=ledger.reduce((a,s)=>a+(s.price||0),0);
   wrap.innerHTML=`
     <div class="stat-strip">
       <div class="stat-pill"><b>${totalCourses}</b><span>Total Courses</span></div>
       <div class="stat-pill"><b>${publishedCount}</b><span>Notes Published</span></div>
-      <div class="stat-pill"><b>${mockStudents.toLocaleString('en-IN')}</b><span>Students (demo)</span></div>
-      <div class="stat-pill"><b>₹${mockRevenue.toLocaleString('en-IN')}</b><span>Revenue (demo)</span></div>
-    </div>
-    <p style="font-size:11.5px;color:var(--text-3);margin-top:10px;">Students &amp; Revenue are illustrative — real numbers arrive once the backend is connected.</p>`;
+      <div class="stat-pill"><b>${studentCount===null ? '—' : studentCount.toLocaleString('en-IN')}</b><span>Registered Students</span></div>
+      <div class="stat-pill"><b>₹${totalRevenue.toLocaleString('en-IN')}</b><span>Total Revenue</span></div>
+    </div>`;
 }
 
 function renderAdminConsole(){
@@ -8208,7 +8273,7 @@ async function updateDemandStatus(id, status){
   showToast('Status updated.');
 }
 
-/* ======================= ADMIN: USER MANAGEMENT ======================= */
+/* ======================= ADMIN: USER MANAGEMENT (real accounts, from `profiles`) ======================= */
 async function goAdminUsers(){
   populateGrantCourseSelect();
   await renderAdminUsersOverview();
@@ -8216,32 +8281,37 @@ async function goAdminUsers(){
   showScreen('admin-users');
 }
 async function renderAdminUsersOverview(){
-  const users=await getUsers();
-  const admins=users.filter(u=>u.role==='admin').length + 1; // +1 for the built-in demo admin
-  const blocked=users.filter(u=>u.blocked).length;
-  document.getElementById('admin-users-stat-strip').innerHTML=`
-    <div class="stat-pill"><b>${users.length + 2}</b><span>Total Accounts</span></div>
+  const wrap=document.getElementById('admin-users-stat-strip');
+  if(!supabaseClient){ wrap.innerHTML=`<p style="font-size:13px;color:var(--text-3);">Supabase isn't configured.</p>`; return; }
+  const { data, error } = await supabaseClient.from('profiles').select('role, blocked');
+  const profiles = error ? [] : (data || []);
+  const admins = profiles.filter(p=>p.role==='admin').length;
+  const blocked = profiles.filter(p=>p.blocked).length;
+  wrap.innerHTML=`
+    <div class="stat-pill"><b>${profiles.length}</b><span>Total Accounts</span></div>
     <div class="stat-pill"><b>${admins}</b><span>Admins</span></div>
-    <div class="stat-pill"><b>${users.length - blocked}</b><span>Active Students</span></div>
+    <div class="stat-pill"><b>${profiles.length - blocked}</b><span>Active Students</span></div>
     <div class="stat-pill"><b>${blocked}</b><span>Suspended</span></div>`;
 }
 async function renderAdminUsersList(query){
-  const q=(query||'').trim().toLowerCase();
-  const users=await getUsers();
-  const filtered = q ? users.filter(u=>u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)) : users;
   const wrap=document.getElementById('admin-users-list');
-  if(!filtered.length){ wrap.innerHTML=`<p style="font-size:13px;color:var(--text-3);">No matching users.</p>`; return; }
-  wrap.innerHTML=`<div class="admin-row-list">` + filtered.slice().reverse().map(u=>{
+  if(!supabaseClient){ wrap.innerHTML=`<p style="font-size:13px;color:var(--text-3);">Supabase isn't configured.</p>`; return; }
+  const q=(query||'').trim().toLowerCase();
+  const { data, error } = await supabaseClient.from('profiles').select('*').order('created_at', { ascending:false });
+  let profiles = error ? [] : (data || []);
+  if(q){ profiles = profiles.filter(u=>(u.name||'').toLowerCase().includes(q) || (u.email||'').toLowerCase().includes(q)); }
+  if(!profiles.length){ wrap.innerHTML=`<p style="font-size:13px;color:var(--text-3);">No matching users.</p>`; return; }
+  wrap.innerHTML=`<div class="admin-row-list">` + profiles.map(u=>{
     const isSelf = state.user && state.user.email===u.email;
     const roleTag = u.role==='admin' ? `<span class="pill pill-sample">Admin</span>` : `<span class="pill pill-locked">Student</span>`;
     const blockedTag = u.blocked ? `<span class="demand-status status-open">Suspended</span>` : '';
-    const joined = u.createdAt ? new Date(u.createdAt).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
-    const bankLine = u.bank ? `${u.bank}${u.designation ? ' · '+u.designation : ''}${u.targetExam ? ' · Prepping for '+u.targetExam : ''}` : '';
+    const joined = u.created_at ? new Date(u.created_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—';
+    const bankLine = u.bank ? `${u.bank}${u.designation ? ' · '+u.designation : ''}${u.target_exam ? ' · Prepping for '+u.target_exam : ''}` : '';
     return `
     <div class="admin-row">
       <div class="admin-row-main">
-        <div class="comment-avatar">${initials(u.name)}</div>
-        <div><b>${u.name}</b><div style="font-size:11.5px;color:var(--text-3);">${u.email} · Joined ${joined}</div>${bankLine?`<div style="font-size:11.5px;color:var(--text-2);margin-top:2px;">🏦 ${bankLine}</div>`:''}</div>
+        <div class="comment-avatar">${initials(u.name||u.email)}</div>
+        <div><b>${u.name||'(no name)'}</b><div style="font-size:11.5px;color:var(--text-3);">${u.email} · Joined ${joined}</div>${bankLine?`<div style="font-size:11.5px;color:var(--text-2);margin-top:2px;">🏦 ${bankLine}</div>`:''}</div>
       </div>
       <div class="admin-row-meta">
         ${roleTag}${blockedTag}
@@ -8249,51 +8319,39 @@ async function renderAdminUsersList(query){
           ${u.role==='admin'
             ? `<button class="btn btn-sm btn-outline" onclick="demoteToStudent('${u.email}')">Remove admin</button>`
             : `<button class="btn btn-sm btn-outline" onclick="promoteToAdmin('${u.email}')">Make admin</button>`}
-          <button class="btn btn-sm btn-outline" onclick="toggleBlockUser('${u.email}')">${u.blocked?'Unsuspend':'Suspend'}</button>`}
+          <button class="btn btn-sm btn-outline" onclick="toggleBlockUser('${u.email}', ${!!u.blocked})">${u.blocked?'Unsuspend':'Suspend'}</button>`}
       </div>
     </div>`;
   }).join('') + `</div>`;
 }
 async function promoteToAdmin(email){
-  const users=await getUsers();
-  const idx=users.findIndex(u=>u.email===email);
-  if(idx>-1){ users[idx].role='admin'; await saveUsers(users); }
+  await supabaseClient.from('profiles').update({ role:'admin' }).eq('email', email);
   await renderAdminUsersOverview(); await renderAdminUsersList(document.getElementById('user-search-input').value);
-  showToast(`${email} is now an admin.`);
+  showToast(`✅ ${email} is now an admin — takes effect after their next login/refresh.`);
 }
 async function demoteToStudent(email){
-  const users=await getUsers();
-  const idx=users.findIndex(u=>u.email===email);
-  if(idx>-1){ users[idx].role='student'; await saveUsers(users); }
+  await supabaseClient.from('profiles').update({ role:'student' }).eq('email', email);
   await renderAdminUsersOverview(); await renderAdminUsersList(document.getElementById('user-search-input').value);
   showToast(`${email}'s admin access removed.`);
 }
-async function toggleBlockUser(email){
-  const users=await getUsers();
-  const idx=users.findIndex(u=>u.email===email);
-  if(idx>-1){ users[idx].blocked=!users[idx].blocked; await saveUsers(users); }
+async function toggleBlockUser(email, currentlyBlocked){
+  await supabaseClient.from('profiles').update({ blocked: !currentlyBlocked }).eq('email', email);
   await renderAdminUsersOverview(); await renderAdminUsersList(document.getElementById('user-search-input').value);
   showToast('User status updated.');
 }
-async function createAdminAccount(){
-  const name=document.getElementById('nu-name').value.trim();
-  const email=document.getElementById('nu-email').value.trim().toLowerCase();
-  const pass=document.getElementById('nu-password').value;
-  const errEl=document.getElementById('nu-error'); errEl.style.display='none';
-  if(!name||!email||pass.length<6){
-    errEl.textContent='Please enter a name, a valid email, and a password of at least 6 characters.';
+async function promoteExistingToAdmin(){
+  const email=document.getElementById('promote-email').value.trim().toLowerCase();
+  const errEl=document.getElementById('promote-error'); errEl.style.display='none';
+  if(!email){ errEl.textContent='Enter the email of an already-registered student.'; errEl.style.display='block'; return; }
+  if(!supabaseClient){ errEl.textContent='This feature needs Supabase to be configured.'; errEl.style.display='block'; return; }
+  const { data, error } = await supabaseClient.from('profiles').update({ role:'admin' }).eq('email', email).select();
+  if(error || !data || !data.length){
+    errEl.textContent='No registered account found with this email — check they have signed up already.';
     errEl.style.display='block'; return;
   }
-  const users=await getUsers();
-  if(users.some(u=>u.email===email) || email==='admin@iibfnotes.in' || email==='demo@iibfnotes.in'){
-    errEl.textContent='An account already exists with this email.';
-    errEl.style.display='block'; return;
-  }
-  users.push({name,email,pass:simpleHash(pass),role:'admin',createdAt:new Date().toISOString(),blocked:false});
-  await saveUsers(users);
-  document.getElementById('nu-name').value=''; document.getElementById('nu-email').value=''; document.getElementById('nu-password').value='';
-  await renderAdminUsersOverview(); await renderAdminUsersList('');
-  showToast(`✅ ${name} can now sign in with full admin powers.`);
+  document.getElementById('promote-email').value='';
+  await renderAdminUsersOverview(); await renderAdminUsersList(document.getElementById('user-search-input').value);
+  showToast(`✅ ${email} is now an admin — they'll see Admin Console after their next login/refresh.`);
 }
 
 /* ======================= ADMIN: BUSINESS MANAGEMENT ======================= */
@@ -8302,10 +8360,9 @@ async function goAdminBusiness(){
   showScreen('admin-business');
 }
 async function renderAdminBusiness(){
-  const mockStudents=1240, mockRevenue=286450;
+  const studentCount = await getTotalStudentCount();
   document.getElementById('biz-baseline-strip').innerHTML=`
-    <div class="stat-pill"><b>${mockStudents.toLocaleString('en-IN')}</b><span>Students (baseline)</span></div>
-    <div class="stat-pill"><b>₹${mockRevenue.toLocaleString('en-IN')}</b><span>Revenue (baseline)</span></div>`;
+    <div class="stat-pill"><b>${studentCount===null ? '—' : studentCount.toLocaleString('en-IN')}</b><span>Registered Students</span></div>`;
 
   const ledger=await getSalesLedger();
   const totalRevenue=ledger.reduce((a,s)=>a+(s.price||0),0);
@@ -8796,6 +8853,7 @@ document.addEventListener('visibilitychange', ()=>{
           document.getElementById('topbar').hidden=false;
           document.getElementById('ticker-strip').hidden=false;
           renderTicker();
+          refreshNotificationBadge();
           startSessionWatch();
           if(state.user.role==='admin'){ goAdmin(); } else { goDashboard(); }
           restored=true;
@@ -8815,6 +8873,7 @@ document.addEventListener('visibilitychange', ()=>{
       document.getElementById('topbar').hidden=false;
       document.getElementById('ticker-strip').hidden=false;
       renderTicker();
+      refreshNotificationBadge();
       await seedDefaultContent();
       startSessionWatch();
       if(session.role==='admin'){ goAdmin(); } else { goDashboard(); }
