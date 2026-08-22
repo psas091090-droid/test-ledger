@@ -6719,19 +6719,23 @@ async function handleAdminDemoLogin(){ await enterApp({name:'Admin', email:'admi
 
 async function enterApp(user){
   state.user=user;
-  if(!user.isDemo){
-    state.sessionToken = generateSessionToken();
-    await setActiveSessionToken(user.email, state.sessionToken);
-  }
-  await saveSession({...user, sessionToken: state.sessionToken});
-  state.purchases = await getPurchases();
+  if(!user.isDemo){ state.sessionToken = generateSessionToken(); }
+  // Fire the independent storage calls together instead of one-by-one — each is its own
+  // network round-trip to Supabase, so awaiting them in sequence was adding up to a
+  // noticeable delay before the screen switched over. None of these depend on each other.
+  const [purchases] = await Promise.all([
+    getPurchases(),
+    seedDefaultContent(),
+    saveSession({...user, sessionToken: state.sessionToken}),
+    user.isDemo ? Promise.resolve() : setActiveSessionToken(user.email, state.sessionToken)
+  ]);
+  state.purchases = purchases;
   document.getElementById('user-chip-name').textContent=user.name;
   document.getElementById('role-badge').hidden = user.role!=='admin';
   document.getElementById('admin-nav-btn').hidden = user.role!=='admin';
   document.getElementById('topbar').hidden=false;
   document.getElementById('ticker-strip').hidden=false;
   renderTicker();
-  await seedDefaultContent();
   startSessionWatch();
   if(user.role==='admin'){ goAdmin(); } else { goDashboard(); }
 }
@@ -8470,12 +8474,14 @@ document.addEventListener('visibilitychange', ()=>{
       const { data:{ session:supaSession } } = await supabaseClient.auth.getSession();
       if(supaSession && supaSession.user){
         authUid = supaSession.user.id;
-        const profile = await fetchOwnProfile(supaSession.user.id);
+        // Same fix as enterApp() — fetch these together instead of one after another.
+        const [profile, priorLocal, purchases] = await Promise.all([
+          fetchOwnProfile(supaSession.user.id), loadSession(), getPurchases()
+        ]);
         if(profile && profile.blocked){
           try{ await supabaseClient.auth.signOut(); }catch(e){}
           authUid=null;
         } else {
-          const priorLocal = await loadSession(); // this device's previously-stored session, if any
           state.user = {
             id:supaSession.user.id, name:(profile && profile.name) || supaSession.user.email, email:supaSession.user.email,
             role:(profile && profile.role) || 'student',
@@ -8485,23 +8491,23 @@ document.addEventListener('visibilitychange', ()=>{
           // Reuse the existing session token if this device already had one (so refreshing a
           // tab doesn't look like "signed in on another device" and force-logout other tabs).
           state.sessionToken = (priorLocal && priorLocal.sessionToken) || generateSessionToken();
-          if(!priorLocal || !priorLocal.sessionToken){ await setActiveSessionToken(state.user.email, state.sessionToken); }
-          await saveSession({...state.user, sessionToken: state.sessionToken});
-          state.purchases=await getPurchases();
+          state.purchases = purchases;
+          const followUps = [ saveSession({...state.user, sessionToken: state.sessionToken}), seedDefaultContent() ];
+          if(!priorLocal || !priorLocal.sessionToken){ followUps.push(setActiveSessionToken(state.user.email, state.sessionToken)); }
+          await Promise.all(followUps);
           document.getElementById('user-chip-name').textContent=state.user.name;
           document.getElementById('role-badge').hidden = state.user.role!=='admin';
           document.getElementById('admin-nav-btn').hidden = state.user.role!=='admin';
           document.getElementById('topbar').hidden=false;
           document.getElementById('ticker-strip').hidden=false;
           renderTicker();
-          await seedDefaultContent();
           startSessionWatch();
           if(state.user.role==='admin'){ goAdmin(); } else { goDashboard(); }
           restored=true;
         }
       }
     }catch(e){ /* fall through to the legacy/demo session check below */ }
-  }
+}
   if(!restored){
     const session=await loadSession();
     if(session){
