@@ -1382,6 +1382,15 @@
       <div class="auth-error" id="nu-error"></div>
       <button class="btn btn-sm btn-grad" onclick="createAdminAccount()">Create admin account</button>
     </div>
+    <div class="admin-panel" style="max-width:560px; margin-top:20px;">
+      <h3>🎁 Grant Course Access</h3>
+      <p style="font-size:11.5px;color:var(--text-3);margin-top:6px;">Give a real, already-registered student free access to a course — no payment involved. Use this for testing, comps, or a payment collected manually outside the app.</p>
+      <div class="field" style="margin-top:14px;"><label>Student's email (they must have already signed up)</label><input id="grant-email" type="email" placeholder="student@example.com"></div>
+      <div class="field"><label>Course</label><select id="grant-course-select"></select></div>
+      <div class="auth-error" id="grant-error"></div>
+      <button class="btn btn-sm btn-grad" onclick="adminGrantCourse()">Grant access</button>
+      <div id="grant-result" style="margin-top:10px;font-size:12.5px;color:var(--text-2);"></div>
+    </div>
     <div class="admin-panel" style="margin-top:20px;">
       <div class="admin-panel-head">
         <h3>All users</h3>
@@ -6009,6 +6018,78 @@ async function fetchOwnProfile(uid){
   }catch(e){ return null; }
 }
 
+/* ======================= ADMIN: MANUAL COURSE GRANT (no payment) =======================
+   Lets an admin give a real, already-registered student a course for free — for testing,
+   comps, or a payment collected manually/offline. Writes DIRECTLY to that student's
+   kv_store 'purchases' row (bypassing the normal ownerKey()-scoped window.storage helpers,
+   since those only ever read/write the CURRENT session's own row) — this requires the
+   kv_store RLS policy to allow admins access to any row (see supabase_schema.sql,
+   kv_store_auth policy's "or public.is_admin()" clause). If that hasn't been run yet,
+   this will fail with a clear message rather than silently doing nothing. */
+async function adminLookupProfileByEmail(email){
+  if(!supabaseClient) return null;
+  try{
+    const { data, error } = await supabaseClient.from('profiles').select('*').eq('email', email).maybeSingle();
+    if(error || !data) return null;
+    return data;
+  }catch(e){ return null; }
+}
+async function adminGetPurchasesForUid(uid){
+  if(!supabaseClient) return [];
+  try{
+    const { data, error } = await supabaseClient.from('kv_store').select('value')
+      .eq('key','purchases').eq('owner_key', uid).eq('shared', false).maybeSingle();
+    if(error || !data) return [];
+    return JSON.parse(data.value);
+  }catch(e){ return []; }
+}
+async function adminSetPurchasesForUid(uid, purchases){
+  if(!supabaseClient) return false;
+  try{
+    const { error } = await supabaseClient.from('kv_store')
+      .upsert({ key:'purchases', owner_key:uid, shared:false, value:JSON.stringify(purchases), updated_at:new Date().toISOString() }, { onConflict:'key,owner_key' });
+    return !error;
+  }catch(e){ return false; }
+}
+function populateGrantCourseSelect(){
+  const sel=document.getElementById('grant-course-select');
+  if(!sel || sel.options.length) return;
+  sel.innerHTML = getAllCoursesFlat().filter(x=>!x.course.sample)
+    .map(x=>`<option value="${x.course.slug}">${x.course.title} — ₹${x.course.price}</option>`).join('');
+}
+async function adminGrantCourse(){
+  const email=document.getElementById('grant-email').value.trim().toLowerCase();
+  const slug=document.getElementById('grant-course-select').value;
+  const errEl=document.getElementById('grant-error'); errEl.style.display='none';
+  const resultEl=document.getElementById('grant-result'); resultEl.textContent='';
+  if(!email || !slug){ errEl.textContent='Both an email and a course are required.'; errEl.style.display='block'; return; }
+  if(!supabaseClient){ errEl.textContent='Ye feature sirf tab kaam karta hai jab Supabase configured ho.'; errEl.style.display='block'; return; }
+  const profile = await adminLookupProfileByEmail(email);
+  if(!profile){ errEl.textContent='No registered account found with this email — they need to sign up first.'; errEl.style.display='block'; return; }
+  const found = findCourseBySlug(slug);
+  if(!found){ errEl.textContent='Course nahi mila.'; errEl.style.display='block'; return; }
+  const { cat, course } = found;
+  const purchases = await adminGetPurchasesForUid(profile.id);
+  if(purchases.some(p=>p.slug===slug)){
+    resultEl.textContent=`ℹ️ ${profile.name||email} ke paas ye course pehle se hi hai.`;
+    return;
+  }
+  purchases.push({ slug, date:new Date().toISOString(), price:course.price, title:course.title, category:cat.name });
+  const ok = await adminSetPurchasesForUid(profile.id, purchases);
+  if(!ok){
+    errEl.textContent='Grant failed — the latest supabase_schema.sql may not have been run yet (the kv_store admin-access policy is required).';
+    errEl.style.display='block'; return;
+  }
+  await appendSale({
+    slug, title:course.title, category:cat.name, catKey:cat.key, price:0,
+    buyerName:profile.name||email, buyerEmail:email, date:new Date().toISOString(),
+    grantedBy:(state.user&&state.user.email)||'admin', note:'Manual grant — no payment'
+  });
+  document.getElementById('grant-email').value='';
+  resultEl.textContent=`✅ ${profile.name||email} ko "${course.title}" grant kar diya gaya.`;
+  showToast('🎁 Course granted!');
+}
+
 /* Stable per-browser identity used to scope "personal" (shared:false) rows until
    real Supabase Auth is wired in (next phase). Once Auth lands, this will be
    replaced by the authenticated user's real auth.uid(). */
@@ -6629,7 +6710,7 @@ async function handleLogin(){
   if(supabaseClient){
     const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password: pass });
     if(error){
-      errEl.textContent='Email ya password galat hai. Dobara try karein, ya Demo Access use karein.';
+      errEl.textContent='Incorrect email or password. Please try again, or use Demo Access.';
       errEl.style.display='block'; return;
     }
     authUid = data.user.id;
@@ -6637,7 +6718,7 @@ async function handleLogin(){
     if(profile && profile.blocked){
       try{ await supabaseClient.auth.signOut(); }catch(e){}
       authUid=null;
-      errEl.textContent='Yeh account admin dwara suspend kiya gaya hai. Support se contact karein.';
+      errEl.textContent='This account has been suspended by an admin. Please contact support.';
       errEl.style.display='block'; return;
     }
     await enterApp({
@@ -6652,11 +6733,11 @@ async function handleLogin(){
   const users=await getUsers();
   const found=users.find(u=>u.email===email);
   if(!found || found.pass!==simpleHash(pass)){
-    errEl.textContent='Email ya password galat hai. Dobara try karein, ya Demo Access use karein.';
+    errEl.textContent='Incorrect email or password. Please try again, or use Demo Access.';
     errEl.style.display='block'; return;
   }
   if(found.blocked){
-    errEl.textContent='Yeh account admin dwara suspend kiya gaya hai. Support se contact karein.';
+    errEl.textContent='This account has been suspended by an admin. Please contact support.';
     errEl.style.display='block'; return;
   }
   await enterApp({name:found.name, email:found.email, role:found.role||'student', isDemo:false,
@@ -6674,11 +6755,11 @@ async function handleRegister(){
   const experience=document.getElementById('reg-experience').value;
   const errEl=document.getElementById('reg-error'); errEl.style.display='none';
   if(!name||!email||pass.length<6){
-    errEl.textContent='Naam, valid email, aur kam se kam 6-character password bharein.';
+    errEl.textContent='Please enter your name, a valid email, and a password of at least 6 characters.';
     errEl.style.display='block'; return;
   }
   if(!bank || !designation || !targetExam){
-    errEl.textContent='Bank, designation aur target exam select karein — isse hum aapka experience personalise kar sakte hain.';
+    errEl.textContent='Please select your bank, designation, and target exam — this helps us personalise your experience.';
     errEl.style.display='block'; return;
   }
   if(supabaseClient){
@@ -6688,14 +6769,14 @@ async function handleRegister(){
     });
     if(error){
       errEl.textContent = /already registered/i.test(error.message||'')
-        ? 'Is email se pehle se account bana hua hai — Sign in try karein.'
+        ? 'An account already exists with this email — please try signing in instead.'
         : ('Registration me dikkat aayi: '+error.message);
       errEl.style.display='block'; return;
     }
     if(!data.session){
       // This Supabase project has "Confirm email" ON — no session until the link is clicked.
       errEl.style.display='none';
-      showToast('Account ban gaya — apna email confirm karke sign in karein.');
+      showToast('Account created — please confirm your email, then sign in.');
       switchAuthTab('login');
       return;
     }
@@ -6706,7 +6787,7 @@ async function handleRegister(){
   // Fallback — only reached if Supabase isn't configured: original local/shared kv_store accounts.
   const users=await getUsers();
   if(users.some(u=>u.email===email)){
-    errEl.textContent='Is email se pehle se account bana hua hai — Sign in try karein.';
+    errEl.textContent='An account already exists with this email — please try signing in instead.';
     errEl.style.display='block'; return;
   }
   users.push({name,email,pass:simpleHash(pass),role:'student',createdAt:new Date().toISOString(),blocked:false,
@@ -7096,7 +7177,7 @@ async function renderCommentsPanel(){
 async function postComment(){
   const el=document.getElementById('new-comment-text');
   const text=el.value.trim();
-  if(!text){ showToast('Pehle kuch likhein.'); return; }
+  if(!text){ showToast('Please write something first.'); return; }
   const slug=state.currentCourseSlug;
   const comments=await getComments(slug);
   comments.push({id:'c'+Date.now(), name:state.user.name, role:state.user.role, text, ts:new Date().toISOString()});
@@ -7729,7 +7810,7 @@ function submitNewCourse(){
   const catKey=document.getElementById('nc-category').value;
   const price=parseFloat(document.getElementById('nc-price').value);
   const topicsRaw=document.getElementById('nc-topics').value.trim();
-  if(!title || isNaN(price) || price<0){ showToast('Title aur valid price zaroori hai.'); return; }
+  if(!title || isNaN(price) || price<0){ showToast('A title and a valid price are required.'); return; }
   const cat=CATEGORIES.find(c=>c.key===catKey);
   const idx=cat.courses.length;
   const topics=topicsRaw ? topicsRaw.split(',').map(t=>t.trim()).filter(Boolean) : ['Content coming soon'];
@@ -7870,7 +7951,7 @@ async function addQBankQuestion(){
   const opts=[0,1,2,3].map(i=>document.getElementById('qb-opt-'+i).value.trim());
   const correctIdx=parseInt(document.querySelector('input[name="qb-correct"]:checked').value);
   const explain=document.getElementById('qb-new-explain').value.trim();
-  if(!qText || opts.some(o=>!o) || !explain){ showToast('Question, saare 4 options aur explanation zaroori hai.'); return; }
+  if(!qText || opts.some(o=>!o) || !explain){ showToast('A question, all 4 options, and an explanation are required.'); return; }
   adminEdit.qbank[adminEdit.qbankDiff].push({q:qText, options:opts, correct:correctIdx, explain});
   await saveQBank(adminEdit.course.slug, adminEdit.qbankModule, adminEdit.qbank);
   document.getElementById('qb-new-question').value='';
@@ -7979,7 +8060,7 @@ async function submitDemand(){
   const slug=document.getElementById('dm-course').value;
   const title=document.getElementById('dm-title').value.trim();
   const text=document.getElementById('dm-text').value.trim();
-  if(!title || !text){ showToast('Title aur details dono bharein.'); return; }
+  if(!title || !text){ showToast('Please fill in both a title and the details.'); return; }
   const found=slug ? findCourseBySlug(slug) : null;
   const all=await getDemands();
   all.push({
@@ -8021,6 +8102,7 @@ async function updateDemandStatus(id, status){
 
 /* ======================= ADMIN: USER MANAGEMENT ======================= */
 async function goAdminUsers(){
+  populateGrantCourseSelect();
   await renderAdminUsersOverview();
   await renderAdminUsersList('');
   showScreen('admin-users');
@@ -8091,12 +8173,12 @@ async function createAdminAccount(){
   const pass=document.getElementById('nu-password').value;
   const errEl=document.getElementById('nu-error'); errEl.style.display='none';
   if(!name||!email||pass.length<6){
-    errEl.textContent='Naam, valid email, aur kam se kam 6-character password bharein.';
+    errEl.textContent='Please enter a name, a valid email, and a password of at least 6 characters.';
     errEl.style.display='block'; return;
   }
   const users=await getUsers();
   if(users.some(u=>u.email===email) || email==='admin@iibfnotes.in' || email==='demo@iibfnotes.in'){
-    errEl.textContent='Is email se pehle se account bana hua hai.';
+    errEl.textContent='An account already exists with this email.';
     errEl.style.display='block'; return;
   }
   users.push({name,email,pass:simpleHash(pass),role:'admin',createdAt:new Date().toISOString(),blocked:false});
@@ -8187,7 +8269,7 @@ async function renderAdminAnnouncements(){
 async function postAnnouncement(){
   const el=document.getElementById('an-text');
   const text=el.value.trim();
-  if(!text){ showToast('Pehle kuch likhein.'); return; }
+  if(!text){ showToast('Please write something first.'); return; }
   let list=await getAnnouncements();
   if(!list){ list=DEFAULT_ANNOUNCEMENTS.slice(); }
   list.push({id:'a'+Date.now(), text, ts:new Date().toISOString(), active:true});
@@ -8293,7 +8375,7 @@ async function renderCommunityThreads(){
 async function postCommunityQuestion(){
   const title=document.getElementById('cq-title').value.trim();
   const body=document.getElementById('cq-body').value.trim();
-  if(!title || !body){ showToast('Title aur details dono bharein.'); return; }
+  if(!title || !body){ showToast('Please fill in both a title and the details.'); return; }
   const room=COMMUNITY_ROOMS.find(r=>r.key===communityState.roomKey);
   const threads=await getCommunityThreads(room.key);
   threads.push({id:'t'+Date.now(), title, body, name:state.user.name, ts:new Date().toISOString(), replies:[]});
@@ -8335,7 +8417,7 @@ async function renderCommunityThreadDetail(){
 }
 async function postCommunityReply(){
   const text=document.getElementById('reply-text').value.trim();
-  if(!text){ showToast('Pehle kuch likhein.'); return; }
+  if(!text){ showToast('Please write something first.'); return; }
   const room=COMMUNITY_ROOMS.find(r=>r.key===communityState.roomKey);
   const threads=await getCommunityThreads(room.key);
   const idx=threads.findIndex(t=>t.id===communityState.threadId);
@@ -8371,7 +8453,7 @@ function goProfile(){
 }
 async function saveProfile(){
   const name=document.getElementById('pf-name').value.trim();
-  if(!name){ showToast('Name khali nahi ho sakta.'); return; }
+  if(!name){ showToast('Name cannot be empty.'); return; }
   const bankSelect=document.getElementById('pf-bank').value;
   const bankOther=document.getElementById('pf-bank-other').value.trim();
   const bank = bankSelect==='Other' ? bankOther : bankSelect;
