@@ -1173,6 +1173,7 @@
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <button class="btn btn-sm btn-outline" onclick="goContentHealth()">📊 Content Health</button>
         <button class="btn btn-sm btn-outline" onclick="goAdminRequests()">📮 Student Requests <span id="admin-requests-count-badge"></span></button>
+        <button class="btn btn-sm btn-outline" onclick="goPaymentRequests()">💳 Payment Requests <span id="payment-requests-count-badge"></span></button>
         <button class="btn btn-sm btn-outline" onclick="goAdminUsers()">👤 User Management</button>
         <button class="btn btn-sm btn-outline" onclick="goAdminBusiness()">💼 Business</button>
         <button class="btn btn-sm btn-outline" onclick="goAdminNews()">📰 Announcements</button>
@@ -1421,6 +1422,24 @@
       <h3>Recent transactions</h3>
       <div id="biz-recent-transactions" style="margin-top:14px;"></div>
     </div>
+    <div class="admin-panel" style="max-width:560px; margin-top:20px;">
+      <h3>💳 Payment Settings</h3>
+      <p style="font-size:11.5px;color:var(--text-3);margin-top:6px;">The UPI ID students pay to at checkout. Shown as a QR code plus plain text — students submit their UTR/reference number after paying, and a payment request appears under "Payment Requests" for you to verify and approve.</p>
+      <div class="field" style="margin-top:14px;"><label>UPI ID</label><input id="pay-upi-id" placeholder="yourname@upi"></div>
+      <div class="field"><label>Payee name shown to students</label><input id="pay-payee-name" placeholder="Ledger"></div>
+      <div class="auth-error" id="pay-settings-error"></div>
+      <button class="btn btn-sm btn-grad" onclick="savePaymentSettings()">Save payment settings</button>
+    </div>
+  </section>
+
+  <section id="screen-payment-requests" hidden>
+    <div class="breadcrumb"><a onclick="goAdmin()">Admin Console</a> / <span>Payment Requests</span></div>
+    <div class="page-head" style="padding-top:14px;">
+      <h2>💳 Payment Requests</h2>
+      <p>Every student's submitted UTR/reference number, waiting on you to check the actual UPI statement and approve or reject.</p>
+    </div>
+    <div class="stat-strip" id="payment-requests-stat-strip"></div>
+    <div id="payment-requests-list" style="margin-top:20px;"></div>
   </section>
 
   <section id="screen-admin-news" hidden>
@@ -1471,6 +1490,7 @@
 <div class="toast" id="toast"></div>
 <div id="print-export-area"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 /* ======================= DATA ======================= */
@@ -6271,6 +6291,26 @@ async function saveCommunityThreads(roomKey, list){ try{ await window.storage.se
 
 /* ======================= SALES LEDGER (global, shared — real cross-session purchase log for Business Management) ======================= */
 async function getSalesLedger(){ try{ const r=await window.storage.get('salesLedger', true); return r?JSON.parse(r.value):[]; }catch(e){ return []; } }
+
+/* ======================= PAYMENT CONFIG (shared — the admin-set UPI ID) ======================= */
+async function getPaymentConfig(){ try{ const r=await window.storage.get('paymentConfig', true); return r?JSON.parse(r.value):null; }catch(e){ return null; } }
+async function savePaymentConfig(cfg){ try{ await window.storage.set('paymentConfig', JSON.stringify(cfg), true); }catch(e){} }
+
+/* Builds a standard UPI deep link — scanning/tapping it opens the user's UPI app with the
+   payee, exact amount, and a note pre-filled. One link-builder serves every course at
+   whatever price it's currently set to; no need to pre-generate a QR image per course. */
+function buildUpiLink(upiId, payeeName, amount, note){
+  const params = new URLSearchParams({ pa: upiId, pn: payeeName || 'Ledger', am: String(amount), cu: 'INR', tn: note || '' });
+  return 'upi://pay?' + params.toString();
+}
+/* Renders a QR code for the given text into the element with this id (uses the qrcodejs
+   library loaded via CDN — see the <script> tag near the top of this file). */
+function renderUpiQr(containerId, text){
+  const el = document.getElementById(containerId);
+  if(!el || typeof QRCode === 'undefined') return;
+  el.innerHTML = '';
+  new QRCode(el, { text, width: 180, height: 180, correctLevel: QRCode.CorrectLevel.M });
+}
 async function appendSale(record){
   try{
     const ledger=await getSalesLedger();
@@ -6844,7 +6884,7 @@ async function renderTicker(){
 
 /* ======================= NAV ======================= */
 function showScreen(name){
-  ['auth','dashboard','category','course','locked','admin','admin-edit','profile','legal','learning','content-health','requests','admin-requests','community','admin-users','admin-business','admin-news'].forEach(s=>{
+  ['auth','dashboard','category','course','locked','admin','admin-edit','profile','legal','learning','content-health','requests','admin-requests','payment-requests','community','admin-users','admin-business','admin-news'].forEach(s=>{
     document.getElementById('screen-'+s).hidden=(s!==name);
   });
   state.screen=name;
@@ -7048,7 +7088,7 @@ function openCourse(catKey, idx){
   else{ openLockedDetail(catKey, course); }
 }
 
-function openLockedDetail(catKey, course){
+async function openLockedDetail(catKey, course){
   const cat=CATEGORIES.find(c=>c.key===catKey);
   document.getElementById('locked-cat-link').textContent=cat.name;
   document.getElementById('locked-cat-link').onclick=()=>openCategory(catKey);
@@ -7058,39 +7098,84 @@ function openLockedDetail(catKey, course){
   if(lockedRatingEl) lockedRatingEl.innerHTML=renderStarsHTML(course);
   document.getElementById('locked-topics').innerHTML=course.topics.map(t=>`<div>— ${t}</div>`).join('');
   const buyBtn=document.getElementById('locked-buy-btn');
-  buyBtn.textContent=`Buy for ₹${course.price}`;
-  buyBtn.onclick=()=>openCheckout(catKey, course);
   showScreen('locked');
+  const pending = await getMyPendingRequestForCourse(course.slug);
+  if(pending){
+    buyBtn.textContent='⏳ Verification pending';
+    buyBtn.disabled=true;
+    buyBtn.onclick=null;
+  } else {
+    buyBtn.textContent=`Buy for ₹${course.price}`;
+    buyBtn.disabled=false;
+    buyBtn.onclick=()=>openCheckout(catKey, course);
+  }
 }
 
-/* ======================= CHECKOUT ======================= */
-function openCheckout(catKey, course){
+/* ======================= CHECKOUT (manual UPI payment + admin verification) ======================= */
+async function getMyPendingRequestForCourse(slug){
+  if(!supabaseClient || !authUid) return null;
+  try{
+    const { data, error } = await supabaseClient.from('payment_requests')
+      .select('*').eq('user_id', authUid).eq('course_slug', slug).eq('status','pending')
+      .order('created_at', { ascending:false }).limit(1).maybeSingle();
+    if(error) return null;
+    return data;
+  }catch(e){ return null; }
+}
+async function openCheckout(catKey, course){
   const card=document.getElementById('checkout-card');
+  if(!supabaseClient || !authUid){
+    card.innerHTML=`
+      <div class="modal-head"><h3>Checkout</h3><button class="modal-close" onclick="closeCheckout()">✕</button></div>
+      <p style="font-size:13px;color:var(--text-3);">Buying a course needs a real signed-in account — Demo Access can't make purchases. Please sign out and create a real account first.</p>`;
+    document.getElementById('checkout-overlay').hidden=false;
+    return;
+  }
+  const config = await getPaymentConfig();
+  if(!config || !config.upiId){
+    card.innerHTML=`
+      <div class="modal-head"><h3>Checkout</h3><button class="modal-close" onclick="closeCheckout()">✕</button></div>
+      <p style="font-size:13px;color:var(--text-3);">Payments aren't set up yet — an admin needs to add a UPI ID first, in Business Management → Payment Settings.</p>`;
+    document.getElementById('checkout-overlay').hidden=false;
+    return;
+  }
+  const upiLink = buildUpiLink(config.upiId, config.payeeName, course.price, `Ledger - ${course.title}`);
   card.innerHTML=`
     <div class="modal-head"><h3>Checkout</h3><button class="modal-close" onclick="closeCheckout()">✕</button></div>
     <div class="checkout-course"><b>${course.title}</b><span>₹${course.price}</span></div>
-    <div class="field"><label>Name</label><input id="co-name" value="${state.user.name}"></div>
-    <div class="field"><label>Email</label><input id="co-email" value="${state.user.email}"></div>
-    <button class="btn btn-grad auth-submit" id="co-pay-btn" onclick="confirmPayment('${course.slug}','${catKey}')">Pay ₹${course.price}</button>
-    <div class="admin-note" style="text-align:center;margin-top:10px;">Prototype checkout — no real payment is processed.</div>`;
+    <p style="font-size:12.5px;color:var(--text-2);margin-top:10px;">Scan the QR with any UPI app, or pay directly to:</p>
+    <div style="font-weight:700;font-size:14px;margin:4px 0 12px;">${config.upiId}</div>
+    <div id="checkout-qr" style="display:flex;justify-content:center;margin-bottom:14px;"></div>
+    <div class="field"><label>Already paid? Enter your UPI reference / UTR number</label><input id="co-utr" placeholder="e.g. 302512345678"></div>
+    <div class="auth-error" id="co-error"></div>
+    <button class="btn btn-grad auth-submit" id="co-submit-btn" onclick="submitPaymentRequest('${course.slug}','${catKey}')">Submit for verification</button>
+    <div class="admin-note" style="text-align:center;margin-top:10px;">Your course unlocks once an admin verifies your payment — usually within a few hours.</div>`;
   document.getElementById('checkout-overlay').hidden=false;
+  renderUpiQr('checkout-qr', upiLink);
 }
 function closeCheckout(){ document.getElementById('checkout-overlay').hidden=true; }
-async function confirmPayment(slug, catKey){
-  const btn=document.getElementById('co-pay-btn');
-  btn.textContent='Processing…'; btn.disabled=true;
-  setTimeout(async ()=>{
-    const cat=CATEGORIES.find(c=>c.key===catKey);
-    const course=cat.courses.find(c=>c.slug===slug);
-    if(!isPurchased(slug)){
-      state.purchases.push({slug, date:new Date().toISOString(), price:course.price, title:course.title, category:cat.name});
-      await savePurchases(state.purchases);
-      await appendSale({slug, title:course.title, category:cat.name, catKey, price:course.price, buyerName:state.user.name, buyerEmail:state.user.email, date:new Date().toISOString()});
-    }
+async function submitPaymentRequest(slug, catKey){
+  const utr=document.getElementById('co-utr').value.trim();
+  const errEl=document.getElementById('co-error'); errEl.style.display='none';
+  if(!utr){ errEl.textContent='Please enter your UPI reference / UTR number.'; errEl.style.display='block'; return; }
+  const cat=CATEGORIES.find(c=>c.key===catKey);
+  const course=cat.courses.find(c=>c.slug===slug);
+  const btn=document.getElementById('co-submit-btn');
+  btn.textContent='Submitting…'; btn.disabled=true;
+  try{
+    const { error } = await supabaseClient.from('payment_requests').insert({
+      user_id: authUid, course_slug: slug, course_title: course.title, category: cat.name,
+      amount: course.price, utr
+    });
+    if(error) throw error;
     closeCheckout();
-    showToast('🎉 Purchase successful — course unlocked!');
-    openCourseHub(catKey, course);
-  }, 900);
+    showToast('✅ Payment request submitted — you\'ll be notified once verified.');
+    if(state.screen==='locked'){ openLockedDetail(catKey, course); }
+  }catch(e){
+    btn.textContent='Submit for verification'; btn.disabled=false;
+    errEl.textContent='Something went wrong submitting your request. Please try again.';
+    errEl.style.display='block';
+  }
 }
 
 /* ======================= COURSE HUB ======================= */
@@ -7681,13 +7766,22 @@ function renderMockReview(){
 }
 
 /* ======================= ADMIN CONSOLE ======================= */
-function goAdmin(){ renderAdminOverview(); renderAdminConsole(); updateAdminRequestsBadge(); showScreen('admin'); }
+function goAdmin(){ renderAdminOverview(); renderAdminConsole(); updateAdminRequestsBadge(); updatePaymentRequestsBadge(); showScreen('admin'); }
 async function updateAdminRequestsBadge(){
   try{
     const all=await getDemands();
     const openCount=all.filter(d=>d.status==='open').length;
     const badge=document.getElementById('admin-requests-count-badge');
     if(badge) badge.textContent = openCount ? `(${openCount})` : '';
+  }catch(e){}
+}
+async function updatePaymentRequestsBadge(){
+  try{
+    if(!supabaseClient) return;
+    const { count, error } = await supabaseClient.from('payment_requests')
+      .select('id', { count:'exact', head:true }).eq('status','pending');
+    const badge=document.getElementById('payment-requests-count-badge');
+    if(badge) badge.textContent = (!error && count) ? `(${count})` : '';
   }catch(e){}
 }
 
@@ -8238,9 +8332,114 @@ async function renderAdminBusiness(){
   const recent=ledger.slice().reverse().slice(0,20);
   recentWrap.innerHTML = recent.length ? `<div class="admin-row-list">` + recent.map(s=>`
     <div class="admin-row">
-      <div class="admin-row-main"><div><b>${s.title}</b><div style="font-size:11.5px;color:var(--text-3);">${s.buyerName} · ${s.buyerEmail}</div></div></div>
+      <div class="admin-row-main"><div><b>${s.title}</b><div style="font-size:11.5px;color:var(--text-3);">${s.buyerName} · ${s.buyerEmail}${s.note?' · '+s.note:''}</div></div></div>
       <div class="admin-row-meta"><span style="font-size:12px;color:var(--text-3);">${timeAgo(s.date)}</span><span style="font-size:12.5px;font-weight:700;">₹${s.price.toLocaleString('en-IN')}</span></div>
     </div>`).join('') + `</div>` : `<p style="font-size:13px;color:var(--text-3);">No transactions yet.</p>`;
+
+  const payConfig = await getPaymentConfig();
+  const upiEl=document.getElementById('pay-upi-id'), payeeEl=document.getElementById('pay-payee-name');
+  if(upiEl && !upiEl.value) upiEl.value = (payConfig && payConfig.upiId) || '';
+  if(payeeEl && !payeeEl.value) payeeEl.value = (payConfig && payConfig.payeeName) || 'Ledger';
+}
+async function savePaymentSettings(){
+  const upiId=document.getElementById('pay-upi-id').value.trim();
+  const payeeName=document.getElementById('pay-payee-name').value.trim() || 'Ledger';
+  const errEl=document.getElementById('pay-settings-error'); errEl.style.display='none';
+  if(!upiId || !upiId.includes('@')){
+    errEl.textContent='Please enter a valid UPI ID (e.g. name@bank).';
+    errEl.style.display='block'; return;
+  }
+  await savePaymentConfig({ upiId, payeeName });
+  showToast('✅ Payment settings saved.');
+}
+
+/* ======================= ADMIN: PAYMENT REQUESTS (verify manual UPI payments) ======================= */
+async function goPaymentRequests(){
+  await renderPaymentRequestsScreen();
+  showScreen('payment-requests');
+}
+async function renderPaymentRequestsScreen(){
+  const wrap=document.getElementById('payment-requests-list');
+  const stat=document.getElementById('payment-requests-stat-strip');
+  if(!supabaseClient){
+    wrap.innerHTML=`<p style="font-size:13px;color:var(--text-3);">Payments aren't configured for this deployment yet.</p>`;
+    return;
+  }
+  const { data, error } = await supabaseClient.from('payment_requests').select('*').order('created_at', { ascending:false });
+  const all = error ? [] : (data || []);
+  const pending = all.filter(r=>r.status==='pending');
+  const approved = all.filter(r=>r.status==='approved');
+  const rejected = all.filter(r=>r.status==='rejected');
+  stat.innerHTML=`
+    <div class="stat-pill"><b>${all.length}</b><span>Total Requests</span></div>
+    <div class="stat-pill"><b>${pending.length}</b><span>Pending</span></div>
+    <div class="stat-pill"><b>${approved.length}</b><span>Approved</span></div>
+    <div class="stat-pill"><b>${rejected.length}</b><span>Rejected</span></div>`;
+  // Flag duplicate UTRs across pending requests — could be a genuine mistake, or someone
+  // reusing a reference number that's already been used elsewhere. Doesn't block anything,
+  // just surfaces it so the admin can look closer before approving.
+  const utrCounts={};
+  pending.forEach(r=>{ utrCounts[r.utr]=(utrCounts[r.utr]||0)+1; });
+  if(!all.length){ wrap.innerHTML=`<p style="font-size:13px;color:var(--text-3);">No payment requests yet.</p>`; return; }
+  wrap.innerHTML = `<div class="admin-row-list">` + all.map(r=>{
+    const statusClass = r.status==='approved' ? 'status-done' : r.status==='rejected' ? 'status-open' : 'status-reviewing';
+    const statusLabel = r.status==='approved' ? '✅ Approved' : r.status==='rejected' ? '❌ Rejected' : '🕓 Pending';
+    const dupWarning = (r.status==='pending' && utrCounts[r.utr]>1) ? ` <span style="color:#e0a030;font-weight:700;">⚠️ duplicate UTR</span>` : '';
+    return `
+    <div class="admin-row" style="flex-direction:column;align-items:stretch;gap:8px;">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div><b>${r.course_title}</b><div style="font-size:11.5px;color:var(--text-3);">${r.category||''} · ₹${Number(r.amount).toLocaleString('en-IN')}</div></div>
+        <span class="demand-status ${statusClass}">${statusLabel}</span>
+      </div>
+      <div style="font-size:12px;color:var(--text-2);">UTR: <b>${r.utr}</b>${dupWarning} · ${timeAgo(r.created_at)}</div>
+      ${r.status==='rejected' && r.admin_note ? `<div style="font-size:12px;color:var(--text-3);">Reason: ${r.admin_note}</div>` : ''}
+      ${r.status==='pending' ? `
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-sm btn-grad" onclick="approvePaymentRequest('${r.id}')">Approve</button>
+          <button class="btn btn-sm btn-outline" onclick="rejectPaymentRequest('${r.id}')">Reject</button>
+        </div>` : ''}
+    </div>`;
+  }).join('') + `</div>`;
+}
+async function approvePaymentRequest(id){
+  const { data:req, error:fetchErr } = await supabaseClient.from('payment_requests').select('*').eq('id', id).maybeSingle();
+  if(fetchErr || !req){ showToast('Could not load this request.'); return; }
+  const purchases = await adminGetPurchasesForUid(req.user_id);
+  if(!purchases.some(p=>p.slug===req.course_slug)){
+    purchases.push({ slug:req.course_slug, date:new Date().toISOString(), price:Number(req.amount), title:req.course_title, category:req.category });
+    const ok = await adminSetPurchasesForUid(req.user_id, purchases);
+    if(!ok){ showToast('Approve failed — check the kv_store admin-access policy has been run.'); return; }
+  }
+  const profile = await adminLookupProfileById(req.user_id);
+  await appendSale({
+    slug:req.course_slug, title:req.course_title, category:req.category, catKey:null, price:Number(req.amount),
+    buyerName:(profile&&profile.name)||req.course_title, buyerEmail:(profile&&profile.email)||'', date:new Date().toISOString(),
+    note:`UTR ${req.utr} — verified by ${(state.user&&state.user.email)||'admin'}`
+  });
+  await supabaseClient.from('payment_requests').update({
+    status:'approved', decided_at:new Date().toISOString(), decided_by: authUid
+  }).eq('id', id);
+  showToast('✅ Approved — course unlocked for the student.');
+  renderPaymentRequestsScreen();
+  updatePaymentRequestsBadge();
+}
+async function rejectPaymentRequest(id){
+  const reason = window.prompt('Reason for rejecting this request (shown to the student):', 'UTR could not be matched to a payment.');
+  if(reason===null) return;
+  await supabaseClient.from('payment_requests').update({
+    status:'rejected', admin_note:reason, decided_at:new Date().toISOString(), decided_by: authUid
+  }).eq('id', id);
+  showToast('Request rejected.');
+  renderPaymentRequestsScreen();
+  updatePaymentRequestsBadge();
+}
+async function adminLookupProfileById(uid){
+  if(!supabaseClient) return null;
+  try{
+    const { data, error } = await supabaseClient.from('profiles').select('*').eq('id', uid).maybeSingle();
+    if(error || !data) return null;
+    return data;
+  }catch(e){ return null; }
 }
 
 /* ======================= ADMIN: ANNOUNCEMENTS / SITE NEWS ======================= */
