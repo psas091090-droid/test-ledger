@@ -6405,14 +6405,20 @@ Object.keys(BUILTIN_NOTES).forEach(slug=>{ BUILTIN_NOTES_UPDATED[slug] = BUILTIN
 async function seedDefaultContent(){
   /* Best-effort: also try to persist builtin content into storage so admin edits/versioning
      can layer on top later. If storage is unavailable, BUILTIN_NOTES/BUILTIN_PDF_META above
-     already guarantee these courses render correctly regardless. */
+     already guarantee these courses render correctly regardless.
+     Perf: once this has run successfully, a flag is stored so every SUBSEQUENT login skips
+     the entire per-course check (was causing 100+ sequential network round-trips on every
+     single login before this fix — the flag turns that into a single check). */
   try{
-    for(const slug of Object.keys(BUILTIN_NOTES)){
+    const flag = await window.storage.get('contentSeededV1', true);
+    if(flag) return;
+    await Promise.all(Object.keys(BUILTIN_NOTES).map(async (slug)=>{
       const existing = await getCourseNotesRaw(slug);
       if(!existing){ await saveCourseNotes(slug, BUILTIN_NOTES[slug]); }
       const pdfExisting = await getPdfMetaForRaw(slug);
       if(!pdfExisting){ await savePdfMetaFor(slug, {...BUILTIN_PDF_META[slug]}); }
-    }
+    }));
+    await window.storage.set('contentSeededV1', '1', true);
   }catch(e){ /* storage unavailable — builtin fallbacks already cover display */ }
 }
 
